@@ -4,9 +4,6 @@ npm-debug.log
 .gitignore
 README.md
 .env.local
-vite.config.ts
-tsconfig.json
-tsconfig.node.json
 .vscode
 .idea
 coverage
