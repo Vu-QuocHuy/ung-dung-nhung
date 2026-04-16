@@ -23,6 +23,8 @@ class ScheduleService {
       ? Math.max(envRepeat, 4500)
       : 5000;
     this._endClearDelayMs = 1500; // delay before S_CLEAR so OFF is observable
+    this._timeZone =
+      process.env.SCHEDULE_TIMEZONE || process.env.TZ || "Asia/Ho_Chi_Minh";
   }
 
   // Khởi động schedule checker (chạy mỗi phút)
@@ -35,8 +37,42 @@ class ScheduleService {
     });
 
     console.log(
-      `Schedule Service started - checking every 5 seconds (${this._tickExpression})`
+      `Schedule Service started - checking every 5 seconds (${this._tickExpression}), timezone=${this._timeZone}`,
     );
+  }
+
+  _getNowInTimeZone() {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: this._timeZone,
+      hour12: false,
+      weekday: "short",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(new Date());
+
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== "literal") map[p.type] = p.value;
+    }
+
+    const weekdayMap = {
+      Sun: 0,
+      Mon: 1,
+      Tue: 2,
+      Wed: 3,
+      Thu: 4,
+      Fri: 5,
+      Sat: 6,
+    };
+
+    const currentDay = weekdayMap[map.weekday] ?? new Date().getDay();
+    const currentTime = `${map.hour}:${map.minute}`;
+    const dateKey = `${map.year}-${map.month}-${map.day}`;
+
+    return { currentDay, currentTime, dateKey };
   }
 
   _dateKey(now) {
@@ -48,7 +84,7 @@ class ScheduleService {
 
   _makeTime(now) {
     return `${String(now.getHours()).padStart(2, "0")}:${String(
-      now.getMinutes()
+      now.getMinutes(),
     ).padStart(2, "0")}`;
   }
 
@@ -69,10 +105,7 @@ class ScheduleService {
   // Kiểm tra và thực thi lịch
   async checkAndExecuteSchedules() {
     try {
-      const now = new Date();
-      const currentDay = now.getDay(); // 0=CN, 1=T2, ..., 6=T7
-      const currentTime = this._makeTime(now);
-      const dateKey = this._dateKey(now);
+      const { currentDay, currentTime, dateKey } = this._getNowInTimeZone();
 
       this._cleanupExecutedKeys();
 
@@ -86,7 +119,7 @@ class ScheduleService {
       if (schedules.length > 0 && this._lastCheckLogTimeKey !== currentTime) {
         this._lastCheckLogTimeKey = currentTime;
         console.log(
-          `[Schedule] Checking ${schedules.length} schedule(s) at ${currentTime}`
+          `[Schedule] Checking ${schedules.length} schedule(s) at ${currentTime}`,
         );
       }
 
@@ -106,11 +139,11 @@ class ScheduleService {
                 schedule._id.toString(),
                 dateKey,
                 schedule.startTime,
-                "start"
+                "start",
               )
             ) {
               console.log(
-                `[Schedule] Start: ${schedule.name} - ${schedule.deviceName} ${schedule.action}`
+                `[Schedule] Start: ${schedule.name} - ${schedule.deviceName} ${schedule.action}`,
               );
 
               if (isServoDoor) {
@@ -156,7 +189,7 @@ class ScheduleService {
                 this._lastServoRunAt.set(sid, nowMs);
                 mqttService.publishRawCommand(schedule.deviceName, "RUN");
                 console.log(
-                  `[Schedule] Servo feed RUN (repeat): ${schedule.name} (${schedule.deviceName})`
+                  `[Schedule] Servo feed RUN (repeat): ${schedule.name} (${schedule.deviceName})`,
                 );
               }
             }
@@ -172,11 +205,11 @@ class ScheduleService {
                 schedule._id.toString(),
                 dateKey,
                 schedule.endTime,
-                "end"
+                "end",
               )
             ) {
               console.log(
-                `[Schedule] End: ${schedule.name} - ${schedule.deviceName} (OFF then back to AUTO)`
+                `[Schedule] End: ${schedule.name} - ${schedule.deviceName} (OFF then back to AUTO)`,
               );
 
               // Kết thúc lịch:
@@ -189,14 +222,14 @@ class ScheduleService {
               }, this._endClearDelayMs);
 
               console.log(
-                `[Schedule] ✓ End executed (S_OFF + delayed S_CLEAR): ${schedule.name}`
+                `[Schedule] ✓ End executed (S_OFF + delayed S_CLEAR): ${schedule.name}`,
               );
             }
           }
         } catch (error) {
           console.error(
             `[Schedule] ✗ Failed to execute ${schedule.name}:`,
-            error.message
+            error.message,
           );
         }
       }
