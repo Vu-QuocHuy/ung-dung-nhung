@@ -1,4 +1,4 @@
-const Schedule = require('../models/Schedule');
+const Schedule = require("../models/Schedule");
 
 // Kiểm tra lịch trùng: cùng device, khoảng thời gian giao nhau và trùng ngày trong tuần
 // Giả định: startTime < endTime, dạng HH:mm (đã được validate)
@@ -31,14 +31,13 @@ exports.getAllSchedules = async (req, res) => {
     res.status(200).json({
       success: true,
       count: schedules.length,
-      data: schedules
+      data: schedules,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Lỗi khi lấy lịch',
-      error: error.message
+      message: "Lỗi khi lấy lịch",
+      error: error.message,
     });
   }
 };
@@ -54,8 +53,10 @@ exports.createSchedule = async (req, res) => {
       action: req.body.action,
       startTime: req.body.startTime,
       endTime: req.body.endTime,
-      daysOfWeek: req.body.daysOfWeek || [0,1,2,3,4,5,6],
+      daysOfWeek: req.body.daysOfWeek || [0, 1, 2, 3, 4, 5, 6],
       enabled: req.body.enabled !== undefined ? req.body.enabled : true,
+      executionCount:
+        req.body.deviceName === "servo_feed" ? req.body.executionCount : null,
     };
 
     if (payload.enabled) {
@@ -68,7 +69,8 @@ exports.createSchedule = async (req, res) => {
       if (conflict) {
         return res.status(400).json({
           success: false,
-          message: 'Thiết bị đã có lịch trùng khung giờ/ngày. Vui lòng chọn thời gian khác.'
+          message:
+            "Thiết bị đã có lịch trùng khung giờ/ngày. Vui lòng chọn thời gian khác.",
         });
       }
     }
@@ -77,15 +79,14 @@ exports.createSchedule = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Tạo lịch thành công',
-      data: schedule
+      message: "Tạo lịch thành công",
+      data: schedule,
     });
-
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: 'Lỗi khi tạo lịch',
-      error: error.message
+      message: "Lỗi khi tạo lịch",
+      error: error.message,
     });
   }
 };
@@ -100,7 +101,7 @@ exports.updateSchedule = async (req, res) => {
     if (!schedule) {
       return res.status(404).json({
         success: false,
-        message: 'Không tìm thấy lịch'
+        message: "Không tìm thấy lịch",
       });
     }
 
@@ -112,7 +113,12 @@ exports.updateSchedule = async (req, res) => {
       startTime: req.body.startTime ?? schedule.startTime,
       endTime: req.body.endTime ?? schedule.endTime,
       daysOfWeek: req.body.daysOfWeek ?? schedule.daysOfWeek,
-      enabled: req.body.enabled !== undefined ? req.body.enabled : schedule.enabled,
+      enabled:
+        req.body.enabled !== undefined ? req.body.enabled : schedule.enabled,
+      executionCount:
+        (req.body.deviceName ?? schedule.deviceName) === "servo_feed"
+          ? (req.body.executionCount ?? schedule.executionCount)
+          : null,
     };
 
     if (updated.enabled) {
@@ -121,12 +127,13 @@ exports.updateSchedule = async (req, res) => {
         startTime: updated.startTime,
         endTime: updated.endTime,
         daysOfWeek: updated.daysOfWeek,
-        excludeId: schedule._id
+        excludeId: schedule._id,
       });
       if (conflict) {
         return res.status(400).json({
           success: false,
-          message: 'Thiết bị đã có lịch trùng khung giờ/ngày. Vui lòng chọn thời gian khác.'
+          message:
+            "Thiết bị đã có lịch trùng khung giờ/ngày. Vui lòng chọn thời gian khác.",
         });
       }
     }
@@ -136,15 +143,14 @@ exports.updateSchedule = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Cập nhật lịch thành công',
-      data: schedule
+      message: "Cập nhật lịch thành công",
+      data: schedule,
     });
-
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: 'Lỗi khi cập nhật',
-      error: error.message
+      message: "Lỗi khi cập nhật",
+      error: error.message,
     });
   }
 };
@@ -159,20 +165,19 @@ exports.deleteSchedule = async (req, res) => {
     if (!schedule) {
       return res.status(404).json({
         success: false,
-        message: 'Không tìm thấy lịch'
+        message: "Không tìm thấy lịch",
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Đã xóa lịch'
+      message: "Đã xóa lịch",
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Lỗi khi xóa',
-      error: error.message
+      message: "Lỗi khi xóa",
+      error: error.message,
     });
   }
 };
@@ -187,7 +192,7 @@ exports.toggleSchedule = async (req, res) => {
     if (!schedule) {
       return res.status(404).json({
         success: false,
-        message: 'Không tìm thấy lịch'
+        message: "Không tìm thấy lịch",
       });
     }
 
@@ -203,7 +208,8 @@ exports.toggleSchedule = async (req, res) => {
       if (conflict) {
         return res.status(400).json({
           success: false,
-          message: 'Thiết bị đã có lịch trùng khung giờ/ngày. Vui lòng chọn thời gian khác.'
+          message:
+            "Thiết bị đã có lịch trùng khung giờ/ngày. Vui lòng chọn thời gian khác.",
         });
       }
     }
@@ -213,15 +219,14 @@ exports.toggleSchedule = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Đã ${schedule.enabled ? 'bật' : 'tắt'} lịch`,
-      data: schedule
+      message: `Đã ${schedule.enabled ? "bật" : "tắt"} lịch`,
+      data: schedule,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Lỗi khi cập nhật',
-      error: error.message
+      message: "Lỗi khi cập nhật",
+      error: error.message,
     });
   }
 };

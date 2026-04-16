@@ -42,8 +42,20 @@ const ScheduleSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Số lần thực hiện trong khung giờ (chỉ áp dụng cho servo_feed)
+    // null => hành vi cũ: lặp liên tục trong khung giờ
+    executionCount: {
+      type: Number,
+      default: null,
+      min: 0,
+      max: 1440,
+      validate: {
+        validator: Number.isInteger,
+        message: "Số lần thực hiện phải là số nguyên",
+      },
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Schedule", ScheduleSchema);

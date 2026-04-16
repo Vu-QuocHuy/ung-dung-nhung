@@ -4,7 +4,7 @@ exports.validateRegister = (req, res, next) => {
   if (!username || !email || !password) {
     return res.status(400).json({
       success: false,
-      message: 'Vui lòng điền đầy đủ thông tin'
+      message: "Vui lòng điền đầy đủ thông tin",
     });
   }
 
@@ -12,21 +12,21 @@ exports.validateRegister = (req, res, next) => {
   if (!emailRegex.test(email)) {
     return res.status(400).json({
       success: false,
-      message: 'Email không hợp lệ'
+      message: "Email không hợp lệ",
     });
   }
 
   if (username.length < 3 || username.length > 30) {
     return res.status(400).json({
       success: false,
-      message: 'Username phải từ 3-30 ký tự'
+      message: "Username phải từ 3-30 ký tự",
     });
   }
 
   if (password.length < 6) {
     return res.status(400).json({
       success: false,
-      message: 'Password phải ít nhất 6 ký tự'
+      message: "Password phải ít nhất 6 ký tự",
     });
   }
 
@@ -39,7 +39,7 @@ exports.validateLogin = (req, res, next) => {
   if (!email || !password) {
     return res.status(400).json({
       success: false,
-      message: 'Vui lòng điền email và password'
+      message: "Vui lòng điền email và password",
     });
   }
 
@@ -53,7 +53,7 @@ exports.validateDeviceControl = (req, res, next) => {
   if (!deviceName || !action) {
     return res.status(400).json({
       success: false,
-      message: 'Thiếu deviceName hoặc action'
+      message: "Thiếu deviceName hoặc action",
     });
   }
 
@@ -61,11 +61,11 @@ exports.validateDeviceControl = (req, res, next) => {
   action = action.toString().toUpperCase();
   req.body.action = action;
 
-  const validActions = ['ON', 'OFF', 'AUTO'];
+  const validActions = ["ON", "OFF", "AUTO"];
   if (!validActions.includes(action)) {
     return res.status(400).json({
       success: false,
-      message: 'Action phải là ON, OFF hoặc AUTO'
+      message: "Action phải là ON, OFF hoặc AUTO",
     });
   }
 
@@ -73,7 +73,7 @@ exports.validateDeviceControl = (req, res, next) => {
   if (value !== undefined && (value < 0 || value > 255)) {
     return res.status(400).json({
       success: false,
-      message: 'Value phải từ 0-255'
+      message: "Value phải từ 0-255",
     });
   }
 
@@ -81,7 +81,8 @@ exports.validateDeviceControl = (req, res, next) => {
 };
 
 exports.validateSchedule = (req, res, next) => {
-  const { name, deviceName, action, startTime, endTime } = req.body;
+  const { name, deviceName, action, startTime, endTime, executionCount } =
+    req.body;
 
   if (!name || !deviceName || !action || !startTime || !endTime) {
     return res.status(400).json({
@@ -117,16 +118,41 @@ exports.validateSchedule = (req, res, next) => {
     }
   }
 
+  if (executionCount !== undefined && executionCount !== null) {
+    if (!Number.isInteger(executionCount) || executionCount < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "executionCount phải là số nguyên không âm",
+      });
+    }
+
+    if (deviceName !== "servo_feed") {
+      return res.status(400).json({
+        success: false,
+        message: "executionCount chỉ áp dụng cho thiết bị servo_feed",
+      });
+    }
+  }
+
+  if (deviceName === "servo_feed" && (action === "RUN" || action === "ON")) {
+    if (executionCount === undefined || executionCount === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Lịch cho ăn cần nhập số lần thực hiện",
+      });
+    }
+  }
+
   next();
 };
 
 exports.validateObjectId = (req, res, next) => {
-  const mongoose = require('mongoose');
-  
+  const mongoose = require("mongoose");
+
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({
       success: false,
-      message: 'ID không hợp lệ'
+      message: "ID không hợp lệ",
     });
   }
 

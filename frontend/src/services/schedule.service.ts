@@ -10,6 +10,7 @@ export interface Schedule {
   endTime: string; // HH:mm format
   daysOfWeek: number[]; // [0=Sunday, 1=Monday, ..., 6=Saturday]
   enabled: boolean;
+  executionCount?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -22,6 +23,7 @@ export interface CreateScheduleData {
   endTime: string;
   daysOfWeek: number[];
   enabled: boolean;
+  executionCount?: number | null;
 }
 
 export const scheduleService = {
@@ -34,22 +36,22 @@ export const scheduleService = {
   },
 
   async create(
-    data: CreateScheduleData
+    data: CreateScheduleData,
   ): Promise<{ success: boolean; data: Schedule }> {
     const response = await apiClient.post<{ success: boolean; data: Schedule }>(
       API_ENDPOINTS.SCHEDULES.BASE,
-      data
+      data,
     );
     return response.data;
   },
 
   async update(
     id: string,
-    data: CreateScheduleData
+    data: CreateScheduleData,
   ): Promise<{ success: boolean; data: Schedule }> {
     const response = await apiClient.put<{ success: boolean; data: Schedule }>(
       API_ENDPOINTS.SCHEDULES.BY_ID(id),
-      data
+      data,
     );
     return response.data;
   },
@@ -64,7 +66,7 @@ export const scheduleService = {
 
   async toggle(id: string): Promise<{ success: boolean; data: Schedule }> {
     const response = await apiClient.put<{ success: boolean; data: Schedule }>(
-      API_ENDPOINTS.SCHEDULES.TOGGLE(id)
+      API_ENDPOINTS.SCHEDULES.TOGGLE(id),
     );
     return response.data;
   },

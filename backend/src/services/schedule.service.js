@@ -9,8 +9,8 @@ class ScheduleService {
     // Guards to avoid re-executing start/end multiple times within the same minute
     this._executedKeys = new Map();
 
-    // Repeat control for servo schedules
-    this._lastServoRunAt = new Map();
+    // Runtime state for servo_feed schedules
+    this._servoFeedWindowState = new Map();
 
     // Log throttling (avoid printing the same HH:MM many times per minute)
     this._lastCheckLogTimeKey = null;
@@ -18,20 +18,24 @@ class ScheduleService {
     // Config
     this._tickExpression = "*/5 * * * * *"; // every 5 seconds
     const envRepeat = parseInt(process.env.SERVO_FEED_REPEAT_MS || "5000", 10);
-    // Firmware feed cycle ~4s, clamp to avoid message queue pile-up.
     this._servoFeedRepeatMs = Number.isFinite(envRepeat)
       ? Math.max(envRepeat, 4500)
       : 5000;
+
+    const envCycle = parseInt(process.env.SERVO_FEED_CYCLE_MS || "4000", 10);
+    this._servoFeedCycleMs = Number.isFinite(envCycle)
+      ? Math.max(envCycle, 3500)
+      : 4000;
+
     this._endClearDelayMs = 1500; // delay before S_CLEAR so OFF is observable
     this._timeZone =
       process.env.SCHEDULE_TIMEZONE || process.env.TZ || "Asia/Ho_Chi_Minh";
   }
 
-  // Khởi động schedule checker (chạy mỗi phút)
+  // Khởi động schedule checker
   start() {
     console.log("Starting Schedule Service...");
 
-    // Chạy định kỳ: check schedules (cần tick nhanh để servo_feed có thể lặp liên tục)
     this.cronJob = cron.schedule(this._tickExpression, async () => {
       await this.checkAndExecuteSchedules();
     });
@@ -75,17 +79,9 @@ class ScheduleService {
     return { currentDay, currentTime, dateKey };
   }
 
-  _dateKey(now) {
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }
-
-  _makeTime(now) {
-    return `${String(now.getHours()).padStart(2, "0")}:${String(
-      now.getMinutes(),
-    ).padStart(2, "0")}`;
+  _toMinutes(hhmm) {
+    const [h, m] = hhmm.split(":").map((v) => parseInt(v, 10));
+    return h * 60 + m;
   }
 
   _shouldExecuteOnce(scheduleId, dateKey, timeKey, phase) {
@@ -95,27 +91,106 @@ class ScheduleService {
     return true;
   }
 
-  _cleanupExecutedKeys(maxAgeMs = 36 * 60 * 60 * 1000) {
+  _cleanupState(maxAgeMs = 36 * 60 * 60 * 1000) {
     const now = Date.now();
+
     for (const [k, ts] of this._executedKeys.entries()) {
       if (now - ts > maxAgeMs) this._executedKeys.delete(k);
     }
+
+    for (const [k, st] of this._servoFeedWindowState.entries()) {
+      if (!st || now - st.createdAtMs > maxAgeMs) {
+        this._servoFeedWindowState.delete(k);
+      }
+    }
   }
 
-  // Kiểm tra và thực thi lịch
+  _planServoFeedWindow(schedule) {
+    const durationMs =
+      (this._toMinutes(schedule.endTime) -
+        this._toMinutes(schedule.startTime)) *
+      60 *
+      1000;
+
+    const requestedCount = Number.isInteger(schedule.executionCount)
+      ? schedule.executionCount
+      : 0;
+
+    // Legacy behavior: if count is absent/invalid, keep repeating in-window
+    if (requestedCount <= 0) {
+      return {
+        requestedCount,
+        plannedCount: 0,
+        intervalMs: this._servoFeedRepeatMs,
+        clamped: false,
+      };
+    }
+
+    // Clamp to physically feasible maximum based on one feed cycle duration
+    const feasibleMax = Math.max(
+      1,
+      Math.floor(durationMs / this._servoFeedCycleMs),
+    );
+    const plannedCount = Math.min(requestedCount, feasibleMax);
+
+    // Even distribution across the whole window with safety floor
+    const intervalMs = Math.max(
+      this._servoFeedCycleMs,
+      Math.floor(durationMs / plannedCount),
+    );
+
+    return {
+      requestedCount,
+      plannedCount,
+      intervalMs,
+      clamped: plannedCount !== requestedCount,
+    };
+  }
+
+  _ensureServoFeedWindowState(schedule, dateKey) {
+    const sid = schedule._id.toString();
+    const stateKey = `${sid}:${dateKey}`;
+    let st = this._servoFeedWindowState.get(stateKey);
+
+    if (!st) {
+      const plan = this._planServoFeedWindow(schedule);
+      st = {
+        ...plan,
+        executedCount: 0,
+        nextDueAtMs: Date.now(),
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        createdAtMs: Date.now(),
+      };
+      this._servoFeedWindowState.set(stateKey, st);
+
+      const countDesc =
+        st.plannedCount > 0
+          ? `${st.plannedCount} lần`
+          : `lặp liên tục mỗi ${Math.round(st.intervalMs / 1000)}s`;
+      const clampDesc = st.clamped
+        ? ` (clamped từ ${st.requestedCount} xuống ${st.plannedCount})`
+        : "";
+
+      console.log(
+        `[Schedule] Servo feed plan: ${schedule.name} -> ${countDesc}${clampDesc}`,
+      );
+    }
+
+    return { sid, stateKey, st };
+  }
+
   async checkAndExecuteSchedules() {
     try {
       const { currentDay, currentTime, dateKey } = this._getNowInTimeZone();
 
-      this._cleanupExecutedKeys();
+      this._cleanupState();
 
-      // Lấy các lịch enabled cho ngày hiện tại
       const schedules = await Schedule.find({
         enabled: true,
         daysOfWeek: currentDay,
       });
 
-      // Tick is every 5 seconds, but currentTime is HH:MM => log this line at most once per minute.
       if (schedules.length > 0 && this._lastCheckLogTimeKey !== currentTime) {
         this._lastCheckLogTimeKey = currentTime;
         console.log(
@@ -127,12 +202,10 @@ class ScheduleService {
         try {
           const isServoDoor = schedule.deviceName === "servo_door";
           const isServoFeed = schedule.deviceName === "servo_feed";
-          const isServo = isServoDoor || isServoFeed;
 
           const inWindow =
             currentTime >= schedule.startTime && currentTime < schedule.endTime;
 
-          // Đến thời gian bắt đầu: thực hiện action (ví dụ: ON/AUTO)
           if (currentTime === schedule.startTime) {
             if (
               this._shouldExecuteOnce(
@@ -147,9 +220,6 @@ class ScheduleService {
               );
 
               if (isServoDoor) {
-                // Cửa ra vào (servo):
-                // - Mới: hỗ trợ ON/OFF theo lịch để mở/đóng và giữ trong khung giờ (bằng S_ON/S_OFF).
-                // - Cũ: nếu action=RUN thì vẫn chạy 1 lần tại startTime.
                 if (schedule.action === "RUN") {
                   mqttService.publishRawCommand(schedule.deviceName, "RUN");
                 } else if (schedule.action === "ON") {
@@ -159,11 +229,7 @@ class ScheduleService {
                 } else if (schedule.action === "AUTO") {
                   mqttService.publishRawCommand(schedule.deviceName, "S_CLEAR");
                 }
-              } else if (isServoFeed) {
-                // Cho ăn (servo): UI dùng action=RUN (Thực hiện), lặp trong khung giờ (xử lý ở block inWindow)
-                // StartTime không cần làm gì thêm.
-              } else {
-                // Thiết bị thường: chỉ ON/OFF (AUTO giữ để tương thích dữ liệu cũ)
+              } else if (!isServoFeed) {
                 if (schedule.action === "AUTO") {
                   mqttService.publishRawCommand(schedule.deviceName, "S_CLEAR");
                 } else if (schedule.action === "ON") {
@@ -177,27 +243,56 @@ class ScheduleService {
             }
           }
 
-          // Trong khung giờ: giữ trạng thái ON/OFF theo lịch.
-          // (Nếu user bật/tắt thủ công -> ESP32 sẽ rời AUTO và lịch tạm thời không còn hiệu lực.)
-          // Riêng servo_feed: lặp liên tục "RUN" cho đến khi hết giờ.
           if (isServoFeed && inWindow) {
             if (schedule.action === "RUN" || schedule.action === "ON") {
-              const sid = schedule._id.toString();
-              const lastAt = this._lastServoRunAt.get(sid) || 0;
-              const nowMs = Date.now();
-              if (nowMs - lastAt >= this._servoFeedRepeatMs) {
-                this._lastServoRunAt.set(sid, nowMs);
-                mqttService.publishRawCommand(schedule.deviceName, "RUN");
-                console.log(
-                  `[Schedule] Servo feed RUN (repeat): ${schedule.name} (${schedule.deviceName})`,
-                );
+              const { st } = this._ensureServoFeedWindowState(
+                schedule,
+                dateKey,
+              );
+
+              if (
+                st.startTime !== schedule.startTime ||
+                st.endTime !== schedule.endTime
+              ) {
+                const sid = schedule._id.toString();
+                this._servoFeedWindowState.delete(`${sid}:${dateKey}`);
+                continue;
               }
+
+              if (st.plannedCount > 0 && st.executedCount >= st.plannedCount) {
+                continue;
+              }
+
+              const nowMs = Date.now();
+              if (nowMs >= st.nextDueAtMs) {
+                mqttService.publishRawCommand(schedule.deviceName, "RUN");
+                st.executedCount += 1;
+                st.nextDueAtMs = nowMs + st.intervalMs;
+
+                const maxDesc = st.plannedCount > 0 ? st.plannedCount : "∞";
+                console.log(
+                  `[Schedule] Servo feed RUN: ${schedule.name} (${st.executedCount}/${maxDesc})`,
+                );
+
+                if (
+                  st.plannedCount > 0 &&
+                  st.executedCount >= st.plannedCount
+                ) {
+                  console.log(
+                    `[Schedule] Servo feed completed: ${schedule.name} (${st.executedCount}/${st.plannedCount})`,
+                  );
+                }
+              }
+            }
+          } else if (isServoFeed && !inWindow) {
+            const sid = schedule._id.toString();
+            const stateKey = `${sid}:${dateKey}`;
+            if (this._servoFeedWindowState.has(stateKey)) {
+              this._servoFeedWindowState.delete(stateKey);
             }
           }
 
-          // Đến thời gian kết thúc: luôn tắt thiết bị
           if (currentTime === schedule.endTime) {
-            // Cho ăn (servo) chỉ chạy trong khung giờ, không có OFF cuối giờ
             if (isServoFeed) continue;
 
             if (
@@ -212,10 +307,6 @@ class ScheduleService {
                 `[Schedule] End: ${schedule.name} - ${schedule.deviceName} (OFF then back to AUTO)`,
               );
 
-              // Kết thúc lịch:
-              // - S_OFF: tắt thiết bị và bật chế độ AUTO (trong firmware)
-              // - S_CLEAR (delay): bỏ ép theo lịch, quay về tự động theo ngưỡng
-              // NOTE: vẫn gửi cả khi user đã bật/tắt thủ công để đảm bảo kết thúc lịch luôn đưa về trạng thái chuẩn.
               mqttService.publishRawCommand(schedule.deviceName, "S_OFF");
               setTimeout(() => {
                 mqttService.publishRawCommand(schedule.deviceName, "S_CLEAR");
@@ -238,7 +329,6 @@ class ScheduleService {
     }
   }
 
-  // Dừng service
   stop() {
     if (this.cronJob) {
       this.cronJob.stop();

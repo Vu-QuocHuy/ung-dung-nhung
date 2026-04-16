@@ -37,7 +37,7 @@ export default function SchedulesScreen() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(
-    null
+    null,
   );
   const [newSchedule, setNewSchedule] = useState({
     name: "",
@@ -46,6 +46,7 @@ export default function SchedulesScreen() {
     startTime: "",
     endTime: "",
     daysOfWeek: [] as number[],
+    executionCount: 1,
   });
   const [schedules, setSchedules] = useState<Schedule[]>([]);
 
@@ -57,7 +58,7 @@ export default function SchedulesScreen() {
     } catch (error: any) {
       toast.error(
         "Không thể tải lịch trình: " +
-          (error.response?.data?.message || error.message)
+          (error.response?.data?.message || error.message),
       );
     } finally {
       setLoading(false);
@@ -86,6 +87,12 @@ export default function SchedulesScreen() {
     if (isServoFeed(newSchedule.deviceName)) {
       if (newSchedule.action !== "RUN") {
         setNewSchedule((prev) => ({ ...prev, action: "RUN" }));
+      }
+      if (
+        !Number.isInteger(newSchedule.executionCount) ||
+        newSchedule.executionCount < 1
+      ) {
+        setNewSchedule((prev) => ({ ...prev, executionCount: 1 }));
       }
       return;
     }
@@ -128,6 +135,16 @@ export default function SchedulesScreen() {
       return;
     }
 
+    if (isServoFeed(newSchedule.deviceName)) {
+      if (
+        !Number.isInteger(newSchedule.executionCount) ||
+        newSchedule.executionCount < 1
+      ) {
+        toast.error("Lịch cho ăn cần số lần thực hiện >= 1");
+        return;
+      }
+    }
+
     try {
       await scheduleService.create({
         name: newSchedule.name,
@@ -137,6 +154,9 @@ export default function SchedulesScreen() {
         endTime: newSchedule.endTime,
         daysOfWeek: newSchedule.daysOfWeek,
         enabled: true,
+        executionCount: isServoFeed(newSchedule.deviceName)
+          ? newSchedule.executionCount
+          : null,
       });
       toast.success("Thêm lịch trình thành công");
       setShowAddDialog(false);
@@ -147,18 +167,29 @@ export default function SchedulesScreen() {
         startTime: "",
         endTime: "",
         daysOfWeek: [],
+        executionCount: 1,
       });
       fetchSchedules();
     } catch (error: any) {
       toast.error(
         "Không thể thêm lịch trình: " +
-          (error.response?.data?.message || error.message)
+          (error.response?.data?.message || error.message),
       );
     }
   };
 
   const handleEditSchedule = async () => {
     if (!selectedSchedule) return;
+
+    if (isServoFeed(selectedSchedule.deviceName)) {
+      if (
+        !Number.isInteger(selectedSchedule.executionCount) ||
+        (selectedSchedule.executionCount ?? 0) < 1
+      ) {
+        toast.error("Lịch cho ăn cần số lần thực hiện >= 1");
+        return;
+      }
+    }
 
     try {
       await scheduleService.update(selectedSchedule._id, {
@@ -169,6 +200,9 @@ export default function SchedulesScreen() {
         endTime: selectedSchedule.endTime,
         daysOfWeek: selectedSchedule.daysOfWeek,
         enabled: selectedSchedule.enabled,
+        executionCount: isServoFeed(selectedSchedule.deviceName)
+          ? (selectedSchedule.executionCount ?? 1)
+          : null,
       });
       toast.success("Cập nhật lịch trình thành công");
       setShowEditDialog(false);
@@ -177,7 +211,7 @@ export default function SchedulesScreen() {
     } catch (error: any) {
       toast.error(
         "Không thể cập nhật lịch trình: " +
-          (error.response?.data?.message || error.message)
+          (error.response?.data?.message || error.message),
       );
     }
   };
@@ -185,11 +219,18 @@ export default function SchedulesScreen() {
   useEffect(() => {
     // Khi mở dialog edit: servo_feed ép action về RUN để UI đúng yêu cầu
     if (!showEditDialog || !selectedSchedule) return;
+    if (!isServoFeed(selectedSchedule.deviceName)) return;
+
     if (
-      isServoFeed(selectedSchedule.deviceName) &&
-      selectedSchedule.action !== "RUN"
+      selectedSchedule.action !== "RUN" ||
+      !Number.isInteger(selectedSchedule.executionCount) ||
+      (selectedSchedule.executionCount ?? 0) < 1
     ) {
-      setSelectedSchedule({ ...selectedSchedule, action: "RUN" as any });
+      setSelectedSchedule({
+        ...selectedSchedule,
+        action: "RUN" as any,
+        executionCount: selectedSchedule.executionCount ?? 1,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEditDialog]);
@@ -203,7 +244,7 @@ export default function SchedulesScreen() {
       } catch (error: any) {
         toast.error(
           "Không thể xóa lịch trình: " +
-            (error.response?.data?.message || error.message)
+            (error.response?.data?.message || error.message),
         );
       }
     }
@@ -217,7 +258,7 @@ export default function SchedulesScreen() {
     } catch (error: any) {
       toast.error(
         "Không thể cập nhật trạng thái: " +
-          (error.response?.data?.message || error.message)
+          (error.response?.data?.message || error.message),
       );
     }
   };
@@ -323,6 +364,23 @@ export default function SchedulesScreen() {
                       </div>
                     </div>
                   </div>
+
+                  {isServoFeed(schedule.deviceName) && (
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <RefreshCw className="w-5 h-5 text-purple-600" />
+                      <div>
+                        <div className="text-xs text-gray-500">
+                          Số lần thực hiện
+                        </div>
+                        <div className="text-gray-900 font-medium">
+                          {Number.isInteger(schedule.executionCount) &&
+                          (schedule.executionCount ?? 0) > 0
+                            ? `${schedule.executionCount} lần`
+                            : "Chưa cấu hình"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="p-3 bg-gray-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
@@ -494,6 +552,35 @@ export default function SchedulesScreen() {
                 </div>
               </div>
 
+              {isServoFeed(newSchedule.deviceName) && (
+                <div>
+                  <label className="block text-gray-700 mb-2 font-medium">
+                    Số lần thực hiện
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    step={1}
+                    value={newSchedule.executionCount}
+                    onChange={(e) =>
+                      setNewSchedule({
+                        ...newSchedule,
+                        executionCount: Math.min(
+                          1440,
+                          Math.max(1, parseInt(e.target.value || "1", 10)),
+                        ),
+                      })
+                    }
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <p className="text-sm text-gray-500 mt-2">
+                    Ví dụ: 5 phút và 10 lần - hệ thống sẽ phân bố đều 10 lần
+                    trong 5 phút.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-gray-700 mb-2 font-medium">
                   Ngày trong tuần
@@ -604,6 +691,31 @@ export default function SchedulesScreen() {
                   />
                 </div>
               </div>
+
+              {isServoFeed(selectedSchedule.deviceName) && (
+                <div>
+                  <label className="block text-gray-700 mb-2 font-medium">
+                    Số lần thực hiện
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    step={1}
+                    value={selectedSchedule.executionCount ?? 1}
+                    onChange={(e) =>
+                      setSelectedSchedule({
+                        ...selectedSchedule,
+                        executionCount: Math.min(
+                          1440,
+                          Math.max(1, parseInt(e.target.value || "1", 10)),
+                        ),
+                      })
+                    }
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-gray-700 mb-2 font-medium">
