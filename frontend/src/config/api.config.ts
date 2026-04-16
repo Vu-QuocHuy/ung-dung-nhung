@@ -1,7 +1,7 @@
 // API Configuration
 const API_BASE_URL =
   // Lấy từ biến môi trường Vite; dùng any để tránh lỗi type khi lint ngoài Vite
-  (import.meta as any).env?.VITE_API_BASE_URL;
+  (import.meta as any).env?.VITE_API_BASE_URL || "/api";
 
 export const API_CONFIG = {
   // Base URL lấy từ biến môi trường Vite (.env/.env.production)

@@ -2,7 +2,7 @@ const rateLimit = require("express-rate-limit");
 
 exports.loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 10,
   message: {
     success: false,
     message: "Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau 15 phút",

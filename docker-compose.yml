@@ -1,0 +1,55 @@
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smartfarm_backend
+    ports:
+      - "3000:3000"
+    networks:
+      - smartfarm_network
+    environment:
+      # Server
+      PORT: 3000
+      NODE_ENV: development
+      
+      # MongoDB Atlas
+      MONGODB_URI: mongodb+srv://quochuy9804_db_user:quochuy9804@cluster0.ajckhka.mongodb.net/database?appName=Cluster0&retryWrites=true&w=majority
+      
+      # JWT
+      JWT_SECRET: smart_farm_secret_key_change_in_production_2025
+      JWT_EXPIRE: 15m
+      REFRESH_TOKEN_EXPIRE: 30d
+      
+      # MQTT (external HiveMQ broker)
+      MQTT_BROKER: 4751c52846f948f2a1405c138c4e4dda.s1.eu.hivemq.cloud
+      MQTT_PORT: 8883
+      MQTT_USERNAME: smartfarm_client
+      MQTT_PASSWORD: SmartFarmPassword2025
+      MQTT_TOPIC_PREFIX: farm
+      MQTT_CLIENT_ID: smartfarm_backend
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/scripts:/app/scripts
+    restart: unless-stopped
+
+  # Frontend Web App
+  frontend:
+    build:
+      context: "./Front End Web"
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: smartfarm_frontend
+    ports:
+      - "80:80"
+    networks:
+      - smartfarm_network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  smartfarm_network:
+    driver: bridge
