@@ -16,7 +16,7 @@ class ScheduleService {
     this._lastCheckLogTimeKey = null;
 
     // Config
-    this._tickExpression = "*/5 * * * * *"; // every 5 seconds
+    this._tickExpression = "*/1 * * * * *"; // every 1 second for precise feed scheduling
     const envRepeat = parseInt(process.env.SERVO_FEED_REPEAT_MS || "5000", 10);
     this._servoFeedRepeatMs = Number.isFinite(envRepeat)
       ? Math.max(envRepeat, 4500)
@@ -41,7 +41,7 @@ class ScheduleService {
     });
 
     console.log(
-      `Schedule Service started - checking every 5 seconds (${this._tickExpression}), timezone=${this._timeZone}`,
+      `Schedule Service started - checking every 1 second (${this._tickExpression}), timezone=${this._timeZone}`,
     );
   }
 
@@ -55,6 +55,7 @@ class ScheduleService {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
     }).formatToParts(new Date());
 
     const map = {};
@@ -74,14 +75,18 @@ class ScheduleService {
 
     const currentDay = weekdayMap[map.weekday] ?? new Date().getDay();
     const currentTime = `${map.hour}:${map.minute}`;
+    const currentSecondOfDay =
+      parseInt(map.hour, 10) * 3600 +
+      parseInt(map.minute, 10) * 60 +
+      parseInt(map.second, 10);
     const dateKey = `${map.year}-${map.month}-${map.day}`;
 
-    return { currentDay, currentTime, dateKey };
+    return { currentDay, currentTime, currentSecondOfDay, dateKey };
   }
 
-  _toMinutes(hhmm) {
+  _toSeconds(hhmm) {
     const [h, m] = hhmm.split(":").map((v) => parseInt(v, 10));
-    return h * 60 + m;
+    return h * 3600 + m * 60;
   }
 
   _shouldExecuteOnce(scheduleId, dateKey, timeKey, phase) {
@@ -106,11 +111,12 @@ class ScheduleService {
   }
 
   _planServoFeedWindow(schedule) {
-    const durationMs =
-      (this._toMinutes(schedule.endTime) -
-        this._toMinutes(schedule.startTime)) *
-      60 *
-      1000;
+    const windowStartSec = this._toSeconds(schedule.startTime);
+    const windowEndSec = this._toSeconds(schedule.endTime);
+    const durationSec = windowEndSec - windowStartSec;
+    const durationMs = durationSec * 1000;
+    const cycleSec = Math.ceil(this._servoFeedCycleMs / 1000);
+    const latestStartSec = windowEndSec - cycleSec;
 
     const requestedCount = Number.isInteger(schedule.executionCount)
       ? schedule.executionCount
@@ -119,9 +125,13 @@ class ScheduleService {
     // Legacy behavior: if count is absent/invalid, keep repeating in-window
     if (requestedCount <= 0) {
       return {
+        windowStartSec,
+        windowEndSec,
+        latestStartSec,
         requestedCount,
         plannedCount: 0,
         intervalMs: this._servoFeedRepeatMs,
+        intervalSec: this._servoFeedRepeatMs / 1000,
         clamped: false,
       };
     }
@@ -133,16 +143,24 @@ class ScheduleService {
     );
     const plannedCount = Math.min(requestedCount, feasibleMax);
 
-    // Even distribution across the whole window with safety floor
+    // Spread run start times from window start to latest safe start.
+    const intervalSec =
+      plannedCount > 1
+        ? (latestStartSec - windowStartSec) / (plannedCount - 1)
+        : 0;
     const intervalMs = Math.max(
       this._servoFeedCycleMs,
-      Math.floor(durationMs / plannedCount),
+      Math.floor(intervalSec * 1000),
     );
 
     return {
+      windowStartSec,
+      windowEndSec,
+      latestStartSec,
       requestedCount,
       plannedCount,
       intervalMs,
+      intervalSec,
       clamped: plannedCount !== requestedCount,
     };
   }
@@ -158,6 +176,7 @@ class ScheduleService {
         ...plan,
         executedCount: 0,
         nextDueAtMs: Date.now(),
+        lastIssuedAtMs: 0,
         startTime: schedule.startTime,
         endTime: schedule.endTime,
         createdAtMs: Date.now(),
@@ -166,7 +185,7 @@ class ScheduleService {
 
       const countDesc =
         st.plannedCount > 0
-          ? `${st.plannedCount} lần`
+          ? `${st.plannedCount} lần, mỗi ~${Math.max(1, Math.round(st.intervalSec))}s`
           : `lặp liên tục mỗi ${Math.round(st.intervalMs / 1000)}s`;
       const clampDesc = st.clamped
         ? ` (clamped từ ${st.requestedCount} xuống ${st.plannedCount})`
@@ -182,7 +201,8 @@ class ScheduleService {
 
   async checkAndExecuteSchedules() {
     try {
-      const { currentDay, currentTime, dateKey } = this._getNowInTimeZone();
+      const { currentDay, currentTime, currentSecondOfDay, dateKey } =
+        this._getNowInTimeZone();
 
       this._cleanupState();
 
@@ -203,8 +223,10 @@ class ScheduleService {
           const isServoDoor = schedule.deviceName === "servo_door";
           const isServoFeed = schedule.deviceName === "servo_feed";
 
+          const startSec = this._toSeconds(schedule.startTime);
+          const endSec = this._toSeconds(schedule.endTime);
           const inWindow =
-            currentTime >= schedule.startTime && currentTime < schedule.endTime;
+            currentSecondOfDay >= startSec && currentSecondOfDay < endSec;
 
           if (currentTime === schedule.startTime) {
             if (
@@ -264,22 +286,51 @@ class ScheduleService {
               }
 
               const nowMs = Date.now();
-              if (nowMs >= st.nextDueAtMs) {
-                mqttService.publishRawCommand(schedule.deviceName, "RUN");
-                st.executedCount += 1;
-                st.nextDueAtMs = nowMs + st.intervalMs;
+              const cycleSec = Math.ceil(this._servoFeedCycleMs / 1000);
+              const canFinishBeforeEnd =
+                currentSecondOfDay + cycleSec <= st.windowEndSec;
 
-                const maxDesc = st.plannedCount > 0 ? st.plannedCount : "∞";
-                console.log(
-                  `[Schedule] Servo feed RUN: ${schedule.name} (${st.executedCount}/${maxDesc})`,
-                );
+              if (!canFinishBeforeEnd) {
+                continue;
+              }
 
-                if (
-                  st.plannedCount > 0 &&
-                  st.executedCount >= st.plannedCount
-                ) {
+              if (st.plannedCount > 0) {
+                const targetStartSec =
+                  st.windowStartSec + st.executedCount * st.intervalSec;
+                const dueByTarget = currentSecondOfDay >= targetStartSec;
+                const cooldownOk =
+                  st.lastIssuedAtMs === 0 ||
+                  nowMs - st.lastIssuedAtMs >= this._servoFeedCycleMs;
+
+                if (dueByTarget && cooldownOk && nowMs >= st.nextDueAtMs) {
+                  mqttService.publishRawCommand(schedule.deviceName, "RUN");
+                  st.executedCount += 1;
+                  st.lastIssuedAtMs = nowMs;
+                  st.nextDueAtMs = nowMs + this._servoFeedCycleMs;
+
                   console.log(
-                    `[Schedule] Servo feed completed: ${schedule.name} (${st.executedCount}/${st.plannedCount})`,
+                    `[Schedule] Servo feed RUN: ${schedule.name} (${st.executedCount}/${st.plannedCount})`,
+                  );
+
+                  if (st.executedCount >= st.plannedCount) {
+                    console.log(
+                      `[Schedule] Servo feed completed: ${schedule.name} (${st.executedCount}/${st.plannedCount})`,
+                    );
+                  }
+                }
+              } else {
+                const cooldownOk =
+                  st.lastIssuedAtMs === 0 ||
+                  nowMs - st.lastIssuedAtMs >= st.intervalMs;
+
+                if (cooldownOk && nowMs >= st.nextDueAtMs) {
+                  mqttService.publishRawCommand(schedule.deviceName, "RUN");
+                  st.executedCount += 1;
+                  st.lastIssuedAtMs = nowMs;
+                  st.nextDueAtMs = nowMs + st.intervalMs;
+
+                  console.log(
+                    `[Schedule] Servo feed RUN: ${schedule.name} (${st.executedCount}/∞)`,
                   );
                 }
               }
