@@ -2,10 +2,19 @@
 const API_BASE_URL =
   // Lấy từ biến môi trường Vite; dùng any để tránh lỗi type khi lint ngoài Vite
   (import.meta as any).env?.VITE_API_BASE_URL || "/api";
+const SOCKET_URL = (() => {
+  const envSocketUrl = (import.meta as any).env?.VITE_SOCKET_URL;
+  if (envSocketUrl) return envSocketUrl;
+  if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
+    return new URL(API_BASE_URL).origin;
+  }
+  return window.location.origin;
+})();
 
 export const API_CONFIG = {
   // Base URL lấy từ biến môi trường Vite (.env/.env.production)
   BASE_URL: API_BASE_URL,
+  SOCKET_URL,
   TIMEOUT: 10000, // 10 seconds
 };
 

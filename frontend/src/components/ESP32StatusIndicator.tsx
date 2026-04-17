@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Wifi, WifiOff, RefreshCw } from "lucide-react";
 import { esp32Service, ESP32StatusResponse } from "../services/esp32.service";
+import { getSocket } from "../services/socket.client";
 
 export default function ESP32StatusIndicator() {
   const [status, setStatus] = useState(null as ESP32StatusResponse | null);
@@ -19,9 +20,18 @@ export default function ESP32StatusIndicator() {
 
   useEffect(() => {
     fetchStatus();
-    // Refresh mỗi 10 giây
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
+    const socket = getSocket();
+
+    const onESP32Status = (socketStatus: ESP32StatusResponse) => {
+      setStatus(socketStatus);
+      setLoading(false);
+    };
+
+    socket.on("esp32:status", onESP32Status);
+
+    return () => {
+      socket.off("esp32:status", onESP32Status);
+    };
   }, []);
 
   if (loading) {

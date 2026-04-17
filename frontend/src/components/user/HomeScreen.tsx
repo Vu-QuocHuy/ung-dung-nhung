@@ -16,6 +16,7 @@ import { alertService } from "../../services/alert.service";
 import { scheduleService } from "../../services/schedule.service";
 import { toast } from "sonner";
 import ESP32StatusCard from "../ESP32StatusCard";
+import { getSocket } from "../../services/socket.client";
 
 export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -80,9 +81,46 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchData();
-    // Auto refresh every 30 seconds
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    const socket = getSocket();
+
+    const onSensorUpdate = (latestData: any) => {
+      setSensorData({
+        temperature: latestData?.temperature?.value ?? 0,
+        humidity: latestData?.humidity?.value ?? 0,
+        soilMoisture: latestData?.soil_moisture?.value ?? 0,
+        waterLevel: latestData?.water_level?.value ?? 0,
+        light: latestData?.light?.value ?? 0,
+        lastUpdate: new Date(
+          latestData?.temperature?.updatedAt ||
+            latestData?.humidity?.updatedAt ||
+            latestData?.soil_moisture?.updatedAt ||
+            latestData?.water_level?.updatedAt ||
+            latestData?.light?.updatedAt ||
+            Date.now()
+        ),
+      });
+      setLoading(false);
+    };
+
+    const onDeviceStatus = (deviceStatus: Record<string, string>) => {
+      const onlineDevices = Object.values(deviceStatus || {}).filter(
+        (status) => status === "ON" || status === "AUTO"
+      ).length;
+
+      setSystemStats((prev) => ({
+        ...prev,
+        devicesOnline: onlineDevices,
+        totalDevices: Object.keys(deviceStatus || {}).length || prev.totalDevices,
+      }));
+    };
+
+    socket.on("sensor:update", onSensorUpdate);
+    socket.on("device:status", onDeviceStatus);
+
+    return () => {
+      socket.off("sensor:update", onSensorUpdate);
+      socket.off("device:status", onDeviceStatus);
+    };
   }, []);
 
   const handleRefresh = () => {

@@ -4,6 +4,14 @@ const DeviceControl = require("../models/DeviceControl");
 const Alert = require("../models/Alert");
 const Threshold = require("../models/Threshold");
 const ESP32Status = require("../models/ESP32Status");
+const {
+  emitSensorUpdate,
+  emitDeviceStatus,
+  emitESP32Status,
+  getLatestSensorSnapshot,
+  getDeviceStatusSnapshot,
+  getESP32StatusSnapshot,
+} = require("./socket.service");
 
 class MQTTService {
   constructor() {
@@ -189,6 +197,9 @@ class MQTTService {
 
       // Logic tự động
       await this.autoControl(sensorType, value);
+
+      const sensorSnapshot = await getLatestSensorSnapshot();
+      emitSensorUpdate(sensorSnapshot);
     } catch (error) {
       console.error("Error handling sensor data:", error);
     }
@@ -230,6 +241,9 @@ class MQTTService {
       console.log(
         `[Heartbeat] ESP32 (${deviceId}) is online - IP: ${ipAddress}`
       );
+
+      const esp32Snapshot = await getESP32StatusSnapshot();
+      emitESP32Status(esp32Snapshot);
     } catch (error) {
       console.error("Error handling heartbeat:", error);
     }
@@ -248,6 +262,9 @@ class MQTTService {
       );
 
       console.log(`[LWT] ESP32 (${deviceId}) went offline`);
+
+      const esp32Snapshot = await getESP32StatusSnapshot();
+      emitESP32Status(esp32Snapshot);
 
       // Khi backend vừa subscribe, broker có thể gửi retained LWT (offline) từ lần trước.
       // Trường hợp này chỉ nên cập nhật trạng thái, tránh tạo cảnh báo sai/spam.
@@ -495,6 +512,9 @@ class MQTTService {
       console.log(
         `Device control: ${deviceName} -> ${commandPayload} (stored=${storedStatus}, by ${controlledBy})`
       );
+
+      const deviceStatusSnapshot = await getDeviceStatusSnapshot();
+      emitDeviceStatus(deviceStatusSnapshot);
 
       return true;
     } catch (error) {

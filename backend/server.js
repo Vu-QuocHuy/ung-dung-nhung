@@ -1,11 +1,13 @@
 require("dotenv").config();
 const express = require("express");
+const http = require("http");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const connectDB = require("./src/config/database");
 const mqttService = require("./src/services/mqtt.service");
 const scheduleService = require("./src/services/schedule.service");
+const { initSocket } = require("./src/services/socket.service");
 const { apiLimiter } = require("./src/middleware/rate-limiter.middleware");
 const {
   handleValidationError,
@@ -26,6 +28,7 @@ const activityLogRoutes = require("./src/routes/activity-log.routes");
 const esp32Routes = require("./src/routes/esp32.routes");
 
 const app = express();
+const server = http.createServer(app);
 
 // Trust proxy - Required for Render, Heroku, AWS, etc.
 app.set("trust proxy", 1);
@@ -94,8 +97,9 @@ const startServer = async () => {
     scheduleService.start();
     console.log("✓ Schedule service initialized");
 
-    // Start Express server
-    app.listen(PORT, () => {
+    // Start HTTP + Socket.IO server
+    initSocket(server);
+    server.listen(PORT, () => {
       console.log(`✓ Server running on port ${PORT}`);
       console.log(`✓ API available at http://localhost:${PORT}/api`);
       console.log(`✓ Health check at http://localhost:${PORT}/health`);

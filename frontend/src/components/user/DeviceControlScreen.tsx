@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Droplets, Fan, Lightbulb, RotateCcw, Zap } from "lucide-react";
 import { deviceService } from "../../services/device.service";
 import { toast } from "sonner";
+import { getSocket } from "../../services/socket.client";
 
 type DeviceStatus = "ON" | "OFF" | "AUTO";
 
@@ -87,37 +88,32 @@ export default function DeviceControlScreen() {
   const [devices, setDevices] = useState([] as Device[]);
   const [pendingIds, setPendingIds] = useState<Record<string, boolean>>({});
 
+  const applyDeviceStatus = (statusData: Record<string, DeviceStatus>) => {
+    const entries = Object.entries(statusData ?? {}) as [string, DeviceStatus][];
+    const devicesWithStatus: Device[] = entries.map(([deviceName, status]) => {
+      const config = DEVICE_CONFIG[deviceName as keyof typeof DEVICE_CONFIG];
+      if (config) {
+        return {
+          ...config,
+          status,
+        } as Device;
+      }
+      return {
+        id: deviceName,
+        name: deviceName,
+        displayName: deviceName,
+        icon: Zap,
+        status,
+        color: "gray",
+      };
+    });
+    setDevices(devicesWithStatus);
+  };
+
   const fetchDeviceStatus = async () => {
     try {
       const statusData = await deviceService.getStatus();
-
-      const entries = Object.entries(statusData ?? {}) as [
-        string,
-        DeviceStatus
-      ][];
-
-      const devicesWithStatus: Device[] = entries.map(
-        ([deviceName, status]) => {
-          const config =
-            DEVICE_CONFIG[deviceName as keyof typeof DEVICE_CONFIG];
-          if (config) {
-            return {
-              ...config,
-              status,
-            } as Device;
-          }
-          return {
-            id: deviceName,
-            name: deviceName,
-            displayName: deviceName,
-            icon: Zap,
-            status,
-            color: "gray",
-          };
-        }
-      );
-
-      setDevices(devicesWithStatus);
+      applyDeviceStatus(statusData);
     } catch (error: any) {
       toast.error(
         "Không thể tải trạng thái thiết bị: " +
@@ -131,14 +127,18 @@ export default function DeviceControlScreen() {
 
   useEffect(() => {
     fetchDeviceStatus();
+    const socket = getSocket();
 
-    // Luôn kiểm tra trạng thái để UI hiển thị đúng
-    const intervalId = window.setInterval(() => {
-      fetchDeviceStatus();
-    }, 10000);
+    const onDeviceStatus = (statusData: Record<string, DeviceStatus>) => {
+      applyDeviceStatus(statusData);
+      setLoading(false);
+      setRefreshing(false);
+    };
+
+    socket.on("device:status", onDeviceStatus);
 
     return () => {
-      window.clearInterval(intervalId);
+      socket.off("device:status", onDeviceStatus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

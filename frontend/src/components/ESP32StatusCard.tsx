@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { esp32Service, ESP32StatusResponse } from "../services/esp32.service";
 import { toast } from "sonner";
+import { getSocket } from "../services/socket.client";
 
 export default function ESP32StatusCard() {
   const [status, setStatus] = useState(null as ESP32StatusResponse | null);
@@ -35,9 +36,19 @@ export default function ESP32StatusCard() {
 
   useEffect(() => {
     fetchStatus();
-    // Tự động refresh mỗi 15 giây
-    const interval = setInterval(() => fetchStatus(), 15000);
-    return () => clearInterval(interval);
+    const socket = getSocket();
+
+    const onESP32Status = (socketStatus: ESP32StatusResponse) => {
+      setStatus(socketStatus);
+      setLoading(false);
+      setRefreshing(false);
+    };
+
+    socket.on("esp32:status", onESP32Status);
+
+    return () => {
+      socket.off("esp32:status", onESP32Status);
+    };
   }, []);
 
   const handleRefresh = () => {
