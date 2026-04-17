@@ -118,20 +118,18 @@ exports.validateSchedule = (req, res, next) => {
     }
   }
 
-  if (executionCount !== undefined && executionCount !== null) {
-    if (!Number.isInteger(executionCount) || executionCount < 0) {
+  if (deviceName !== "servo_feed") {
+    // executionCount only applies to servo_feed; silently ignore for other devices.
+    req.body.executionCount = null;
+  } else if (executionCount !== undefined && executionCount !== null) {
+    const parsed = Number(executionCount);
+    if (!Number.isInteger(parsed) || parsed < 0) {
       return res.status(400).json({
         success: false,
         message: "executionCount phải là số nguyên không âm",
       });
     }
-
-    if (deviceName !== "servo_feed") {
-      return res.status(400).json({
-        success: false,
-        message: "executionCount chỉ áp dụng cho thiết bị servo_feed",
-      });
-    }
+    req.body.executionCount = parsed;
   }
 
   if (deviceName === "servo_feed" && (action === "RUN" || action === "ON")) {

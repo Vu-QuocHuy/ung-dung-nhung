@@ -1,5 +1,11 @@
 const Schedule = require("../models/Schedule");
 
+const normalizeExecutionCount = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : value;
+};
+
 // Kiểm tra lịch trùng: cùng device, khoảng thời gian giao nhau và trùng ngày trong tuần
 // Giả định: startTime < endTime, dạng HH:mm (đã được validate)
 const hasScheduleConflict = async ({
@@ -56,7 +62,9 @@ exports.createSchedule = async (req, res) => {
       daysOfWeek: req.body.daysOfWeek || [0, 1, 2, 3, 4, 5, 6],
       enabled: req.body.enabled !== undefined ? req.body.enabled : true,
       executionCount:
-        req.body.deviceName === "servo_feed" ? req.body.executionCount : null,
+        req.body.deviceName === "servo_feed"
+          ? normalizeExecutionCount(req.body.executionCount)
+          : null,
     };
 
     if (payload.enabled) {
@@ -117,7 +125,9 @@ exports.updateSchedule = async (req, res) => {
         req.body.enabled !== undefined ? req.body.enabled : schedule.enabled,
       executionCount:
         (req.body.deviceName ?? schedule.deviceName) === "servo_feed"
-          ? (req.body.executionCount ?? schedule.executionCount)
+          ? normalizeExecutionCount(
+              req.body.executionCount ?? schedule.executionCount,
+            )
           : null,
     };
 

@@ -50,7 +50,11 @@ const ScheduleSchema = new mongoose.Schema(
       min: 0,
       max: 1440,
       validate: {
-        validator: Number.isInteger,
+        validator: function (value) {
+          return (
+            value === null || value === undefined || Number.isInteger(value)
+          );
+        },
         message: "Số lần thực hiện phải là số nguyên",
       },
     },
