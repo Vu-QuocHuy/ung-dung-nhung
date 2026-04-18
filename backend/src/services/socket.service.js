@@ -30,7 +30,8 @@ async function getLatestSensorSnapshot() {
   for (const type of sensorTypes) {
     const data = await SensorData.findOne({ sensorType: type })
       .sort({ createdAt: -1 })
-      .limit(1);
+      .limit(1)
+      .lean();
     latestData[type] = data;
   }
 

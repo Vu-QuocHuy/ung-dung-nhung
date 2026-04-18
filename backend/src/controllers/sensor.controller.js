@@ -12,9 +12,10 @@ exports.getLatestSensorData = async (req, res) => {
     
     for (const type of sensorTypes) {
       const data = await SensorData.findOne({ sensorType: type })
-        .sort({ createdAt: -1 })  // Sắp xếp giảm dần (mới nhất trước)
-        .limit(1);
-      
+        .sort({ createdAt: -1 }) // Sắp xếp giảm dần (mới nhất trước)
+        .limit(1)
+        .lean();
+
       latestData[type] = data;
     }
 

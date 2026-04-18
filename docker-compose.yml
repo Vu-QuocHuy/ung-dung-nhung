@@ -13,6 +13,8 @@ services:
       # Server
       PORT: 3000
       NODE_ENV: development
+      # Bắt buộc cho CORS + Socket.IO (phải trùng URL bạn mở trên trình duyệt, ví dụ http://localhost hoặc http://127.0.0.1)
+      FRONTEND_URL: http://localhost
       
       # MongoDB Atlas
       MONGODB_URI: mongodb+srv://quochuy9804_db_user:quochuy9804@cluster0.ajckhka.mongodb.net/database?appName=Cluster0&retryWrites=true&w=majority

@@ -18,6 +18,12 @@ import { toast } from "sonner";
 import ESP32StatusCard from "../ESP32StatusCard";
 import { getSocket } from "../../services/socket.client";
 
+function num(v: unknown): number {
+  if (v == null || v === "") return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -80,16 +86,16 @@ export default function HomeScreen() {
   };
 
   useEffect(() => {
-    fetchData();
+    let cancelled = false;
     const socket = getSocket();
 
     const onSensorUpdate = (latestData: any) => {
       setSensorData({
-        temperature: latestData?.temperature?.value ?? 0,
-        humidity: latestData?.humidity?.value ?? 0,
-        soilMoisture: latestData?.soil_moisture?.value ?? 0,
-        waterLevel: latestData?.water_level?.value ?? 0,
-        light: latestData?.light?.value ?? 0,
+        temperature: num(latestData?.temperature?.value),
+        humidity: num(latestData?.humidity?.value),
+        soilMoisture: num(latestData?.soil_moisture?.value),
+        waterLevel: num(latestData?.water_level?.value),
+        light: num(latestData?.light?.value),
         lastUpdate: new Date(
           latestData?.temperature?.updatedAt ||
             latestData?.humidity?.updatedAt ||
@@ -114,10 +120,15 @@ export default function HomeScreen() {
       }));
     };
 
-    socket.on("sensor:update", onSensorUpdate);
-    socket.on("device:status", onDeviceStatus);
+    (async () => {
+      await fetchData();
+      if (cancelled) return;
+      socket.on("sensor:update", onSensorUpdate);
+      socket.on("device:status", onDeviceStatus);
+    })();
 
     return () => {
+      cancelled = true;
       socket.off("sensor:update", onSensorUpdate);
       socket.off("device:status", onDeviceStatus);
     };

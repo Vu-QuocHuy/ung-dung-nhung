@@ -1,5 +1,5 @@
-# Build stage
-FROM node:18-alpine AS builder
+# Build stage — Debian (glibc): @swc/core postinstall hay SIGBUS trên node:*-alpine (musl)
+FROM node:18-bookworm-slim AS builder
 
 WORKDIR /app
 
